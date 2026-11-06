@@ -4,11 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "lint": "oxlint",
-    "preview": "vite preview"
-  },
+  "start": "vite",
+  "dev": "vite",
+  "build": "vite build",
+  "lint": "oxlint",
+  "preview": "vite preview"
+},
   "dependencies": {
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
