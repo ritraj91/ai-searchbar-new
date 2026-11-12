@@ -1,5 +1,6 @@
 import { CapabilityProvider } from "./context/CapabilityRegistry";
 import { useState } from "react";
+
 import {
   BrowserRouter,
   Routes,
@@ -9,10 +10,14 @@ import {
 } from "react-router-dom";
 
 import AISearchBar from "./components/AISearchBar";
+
 import "./index.css";
 import "./App.css";
 
-// Sample employee data
+// --------------------------------------------------
+// INITIAL EMPLOYEE DATA
+// --------------------------------------------------
+
 const initialMembers = [
   {
     id: 1,
@@ -37,9 +42,12 @@ const initialMembers = [
   },
 ];
 
-// Common application layout
+// --------------------------------------------------
+// COMMON APPLICATION LAYOUT
+// --------------------------------------------------
+
 function Layout({ children }) {
-  // Demo role. Replace with the authenticated user's role later.
+  // Demo role. Replace with authenticated user role later.
   const currentRole = "manager";
 
   return (
@@ -71,7 +79,10 @@ function Layout({ children }) {
   );
 }
 
-// Reusable section buttons
+// --------------------------------------------------
+// REUSABLE SECTION BUTTONS
+// --------------------------------------------------
+
 function SectionButtons({ items, active, onSelect }) {
   return (
     <div className="section-buttons">
@@ -80,6 +91,10 @@ function SectionButtons({ items, active, onSelect }) {
           key={item.id}
           type="button"
           className={active === item.id ? "active" : ""}
+          data-ai-action-id={`section-${item.id}`}
+          data-ai-description={`Open the ${item.label} section and display its information.`}
+          data-ai-category="navigation"
+          data-ai-risk="low"
           onClick={() => onSelect(item.id)}
         >
           {item.label}
@@ -89,7 +104,10 @@ function SectionButtons({ items, active, onSelect }) {
   );
 }
 
-// Dashboard page
+// --------------------------------------------------
+// DASHBOARD PAGE
+// --------------------------------------------------
+
 function Dashboard() {
   const [params, setParams] = useSearchParams();
 
@@ -121,6 +139,7 @@ function Dashboard() {
         onSelect={selectSection}
       />
 
+      {/* OVERVIEW */}
 
       {section === "overview" && (
         <>
@@ -149,9 +168,19 @@ function Dashboard() {
             <p>
               Choose a dashboard section above to explore more details.
             </p>
+             <button
+    type="button"
+    className="primary-button"
+    title="Generate a dashboard report"
+    onClick={() => {
+      alert("Dashboard report generated successfully!");
+    }}
+  ></button>
           </div>
         </>
       )}
+
+      {/* STATISTICS */}
 
       {section === "statistics" && (
         <div className="content-card">
@@ -178,6 +207,8 @@ function Dashboard() {
         </div>
       )}
 
+      {/* RECENT ACTIVITY */}
+
       {section === "activity" && (
         <div className="content-card">
           <h2>Recent Team Activity</h2>
@@ -189,6 +220,8 @@ function Dashboard() {
           </ul>
         </div>
       )}
+
+      {/* QUICK ACTIONS */}
 
       {section === "actions" && (
         <div className="content-card">
@@ -210,11 +243,19 @@ function Dashboard() {
         </div>
       )}
 
+      {/* INVALID SECTION */}
+
       {!sections.some((item) => item.id === section) && (
         <div className="content-card">
           <h2>Dashboard section not found</h2>
+
           <button
+            type="button"
             className="primary-button"
+            data-ai-action-id="dashboard-back-to-overview"
+            data-ai-description="Return to the dashboard overview section."
+            data-ai-category="navigation"
+            data-ai-risk="low"
             onClick={() => selectSection("overview")}
           >
             Back to Overview
@@ -225,16 +266,21 @@ function Dashboard() {
   );
 }
 
-// Team management page
+// --------------------------------------------------
+// TEAM MANAGEMENT PAGE
+// --------------------------------------------------
+
 function TeamPage({ members, setMembers }) {
   const [params, setParams] = useSearchParams();
 
   const section = params.get("section") || "list";
 
   const [search, setSearch] = useState("");
+
   const [selectedId, setSelectedId] = useState(
     members[0]?.id || ""
   );
+
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
 
@@ -260,12 +306,17 @@ function TeamPage({ members, setMembers }) {
     (member) => member.id === Number(selectedId)
   );
 
+  // Open employee edit form
+
   function startEdit(member) {
     setSelectedId(member.id);
     setEditName(member.name);
     setEditEmail(member.email);
+
     selectSection("edit");
   }
+
+  // Save employee details
 
   function saveMember(event) {
     event.preventDefault();
@@ -275,21 +326,43 @@ function TeamPage({ members, setMembers }) {
       return;
     }
 
+    const trimmedName = editName.trim();
+    const trimmedEmail = editEmail.trim();
+
+    if (!trimmedName || !trimmedEmail) {
+      alert("Name and email are required.");
+      return;
+    }
+
+    const emailExists = members.some(
+      (member) =>
+        member.id !== Number(selectedId) &&
+        member.email.toLowerCase() === trimmedEmail.toLowerCase()
+    );
+
+    if (emailExists) {
+      alert("This email already exists in your team.");
+      return;
+    }
+
     setMembers((previous) =>
       previous.map((member) =>
         member.id === Number(selectedId)
           ? {
               ...member,
-              name: editName,
-              email: editEmail,
+              name: trimmedName,
+              email: trimmedEmail,
             }
           : member
       )
     );
 
     alert("Member details updated.");
+
     selectSection("list");
   }
+
+  // Remove employee
 
   function removeMember(id) {
     const confirmed = window.confirm(
@@ -308,6 +381,8 @@ function TeamPage({ members, setMembers }) {
       setEditEmail("");
     }
   }
+
+  // Activate / Deactivate employee
 
   function toggleStatus(id) {
     setMembers((previous) =>
@@ -338,17 +413,22 @@ function TeamPage({ members, setMembers }) {
         onSelect={selectSection}
       />
 
+      {/* MEMBERS LIST */}
+
       {section === "list" && (
         <div className="content-card">
           <h2>Team Members List</h2>
 
           <MemberTable
             members={members}
+            actionScope="team-list"
             onEdit={startEdit}
             onRemove={removeMember}
           />
         </div>
       )}
+
+      {/* SEARCH MEMBERS */}
 
       {section === "search" && (
         <div className="content-card">
@@ -356,6 +436,7 @@ function TeamPage({ members, setMembers }) {
 
           <input
             className="form-input"
+            type="search"
             placeholder="Search by name or email..."
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -363,11 +444,14 @@ function TeamPage({ members, setMembers }) {
 
           <MemberTable
             members={filteredMembers}
+            actionScope="team-search"
             onEdit={startEdit}
             onRemove={removeMember}
           />
         </div>
       )}
+
+      {/* EDIT MEMBER */}
 
       {section === "edit" && (
         <div className="content-card">
@@ -399,7 +483,10 @@ function TeamPage({ members, setMembers }) {
           </select>
 
           {selectedMember && (
-            <form onSubmit={saveMember} className="form-stack">
+            <form
+              onSubmit={saveMember}
+              className="form-stack"
+            >
               <label>Name</label>
 
               <input
@@ -423,7 +510,14 @@ function TeamPage({ members, setMembers }) {
                 required
               />
 
-              <button className="primary-button" type="submit">
+              <button
+                type="submit"
+                className="primary-button"
+                data-ai-action-id="save-member-changes"
+                data-ai-description={`Save updated name and email details for ${selectedMember.name}.`}
+                data-ai-category="employee-management"
+                data-ai-risk="confirm"
+              >
                 Save Changes
               </button>
             </form>
@@ -431,9 +525,15 @@ function TeamPage({ members, setMembers }) {
         </div>
       )}
 
+      {/* REMOVE MEMBER */}
+
       {section === "remove" && (
         <div className="content-card">
           <h2>Remove Team Member</h2>
+
+          {members.length === 0 && (
+            <p>No team members found.</p>
+          )}
 
           {members.map((member) => (
             <div className="member-action-row" key={member.id}>
@@ -442,7 +542,12 @@ function TeamPage({ members, setMembers }) {
               </span>
 
               <button
+                type="button"
                 className="danger-button"
+                data-ai-action-id={`remove-member-section-${member.id}`}
+                data-ai-description={`Remove ${member.name} from the team.`}
+                data-ai-category="employee-management"
+                data-ai-risk="high"
                 onClick={() => removeMember(member.id)}
               >
                 Remove
@@ -452,9 +557,15 @@ function TeamPage({ members, setMembers }) {
         </div>
       )}
 
+      {/* MEMBER STATUS */}
+
       {section === "status" && (
         <div className="content-card">
           <h2>Manage Member Status</h2>
+
+          {members.length === 0 && (
+            <p>No team members found.</p>
+          )}
 
           {members.map((member) => (
             <div className="member-action-row" key={member.id}>
@@ -463,7 +574,16 @@ function TeamPage({ members, setMembers }) {
               </span>
 
               <button
+                type="button"
                 className="secondary-button"
+                data-ai-action-id={`toggle-member-status-${member.id}`}
+                data-ai-description={`Change ${member.name}'s status from ${member.status} to ${
+                  member.status === "Active" ? "Inactive" : "Active"
+                }.`}
+                data-ai-category="employee-management"
+                data-ai-risk={
+                  member.status === "Active" ? "high" : "confirm"
+                }
                 onClick={() => toggleStatus(member.id)}
               >
                 {member.status === "Active"
@@ -475,11 +595,19 @@ function TeamPage({ members, setMembers }) {
         </div>
       )}
 
+      {/* INVALID SECTION */}
+
       {!sections.some((item) => item.id === section) && (
         <div className="content-card">
           <h2>Team section not found</h2>
+
           <button
+            type="button"
             className="primary-button"
+            data-ai-action-id="team-back-to-list"
+            data-ai-description="Return to the team members list."
+            data-ai-category="navigation"
+            data-ai-risk="low"
             onClick={() => selectSection("list")}
           >
             View Members List
@@ -490,8 +618,16 @@ function TeamPage({ members, setMembers }) {
   );
 }
 
-// Reusable employee table
-function MemberTable({ members, onEdit, onRemove }) {
+// --------------------------------------------------
+// REUSABLE EMPLOYEE TABLE
+// --------------------------------------------------
+
+function MemberTable({
+  members,
+  actionScope,
+  onEdit,
+  onRemove,
+}) {
   return (
     <div className="table-wrapper">
       <table>
@@ -515,14 +651,24 @@ function MemberTable({ members, onEdit, onRemove }) {
 
               <td className="table-actions">
                 <button
+                  type="button"
                   className="secondary-button"
+                  data-ai-action-id={`edit-member-${actionScope}-${member.id}`}
+                  data-ai-description={`Open the edit form for ${member.name} to update employee details.`}
+                  data-ai-category="employee-management"
+                  data-ai-risk="confirm"
                   onClick={() => onEdit(member)}
                 >
                   Edit
                 </button>
 
                 <button
+                  type="button"
                   className="danger-button"
+                  data-ai-action-id={`remove-member-${actionScope}-${member.id}`}
+                  data-ai-description={`Remove ${member.name} from the team.`}
+                  data-ai-category="employee-management"
+                  data-ai-risk="high"
                   onClick={() => onRemove(member.id)}
                 >
                   Remove
@@ -533,7 +679,9 @@ function MemberTable({ members, onEdit, onRemove }) {
 
           {members.length === 0 && (
             <tr>
-              <td colSpan="5">No team members found.</td>
+              <td colSpan="5">
+                No team members found.
+              </td>
             </tr>
           )}
         </tbody>
@@ -542,16 +690,15 @@ function MemberTable({ members, onEdit, onRemove }) {
   );
 }
 
-// Invite member page
-function InvitePage({ members, setMembers }) {
-  const [params] = useSearchParams();
+// --------------------------------------------------
+// INVITE MEMBER PAGE
+// --------------------------------------------------
 
+function InvitePage({ members, setMembers }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("Employee");
   const [message, setMessage] = useState("");
-
-  const section = params.get("section") || "form";
 
   function resetForm() {
     setName("");
@@ -563,9 +710,17 @@ function InvitePage({ members, setMembers }) {
   function sendInvitation(event) {
     event.preventDefault();
 
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim();
+
+    if (!trimmedName || !trimmedEmail) {
+      setMessage("Please enter name and email.");
+      return;
+    }
+
     const emailExists = members.some(
       (member) =>
-        member.email.toLowerCase() === email.trim().toLowerCase()
+        member.email.toLowerCase() === trimmedEmail.toLowerCase()
     );
 
     if (emailExists) {
@@ -577,17 +732,20 @@ function InvitePage({ members, setMembers }) {
       ...previous,
       {
         id: Date.now(),
-        name: name.trim(),
-        email: email.trim(),
+        name: trimmedName,
+        email: trimmedEmail,
         role,
         status: "Pending",
       },
     ]);
 
-    setMessage(`Invitation record created for ${email}.`);
+    setMessage(
+      `Invitation record created for ${trimmedEmail}.`
+    );
 
     setName("");
     setEmail("");
+    setRole("Employee");
   }
 
   return (
@@ -598,21 +756,17 @@ function InvitePage({ members, setMembers }) {
       </div>
 
       <div className="content-card">
-        <h2>
-          {section === "reset"
-            ? "Reset Invitation Form"
-            : "New Member Invitation Form"}
-        </h2>
+        <h2>New Member Invitation Form</h2>
 
-        {section === "reset" && (
-          <p>Fill in the form below to create a new invitation.</p>
-        )}
-
-        <form onSubmit={sendInvitation} className="form-stack">
+        <form
+          onSubmit={sendInvitation}
+          className="form-stack"
+        >
           <label>Full Name</label>
 
           <input
             className="form-input"
+            type="text"
             value={name}
             onChange={(event) => setName(event.target.value)}
             required
@@ -642,13 +796,24 @@ function InvitePage({ members, setMembers }) {
           </select>
 
           <div className="button-row">
-            <button className="primary-button" type="submit">
+            <button
+              className="primary-button"
+              type="submit"
+              data-ai-action-id="create-invitation"
+              data-ai-description="Create a team invitation using the entered employee name, email address and role."
+              data-ai-category="invitations"
+              data-ai-risk="confirm"
+            >
               Create Invitation
             </button>
 
             <button
               className="secondary-button"
               type="button"
+              data-ai-action-id="reset-invitation-form"
+              data-ai-description="Clear all entered fields in the invitation form."
+              data-ai-category="invitations"
+              data-ai-risk="confirm"
               onClick={resetForm}
             >
               Reset Form
@@ -657,14 +822,19 @@ function InvitePage({ members, setMembers }) {
         </form>
 
         {message && (
-          <p className="success-message">{message}</p>
+          <p className="success-message">
+            {message}
+          </p>
         )}
       </div>
     </Layout>
   );
 }
 
-// Account settings page
+// --------------------------------------------------
+// ACCOUNT SETTINGS PAGE
+// --------------------------------------------------
+
 function SettingsPage() {
   const [params, setParams] = useSearchParams();
 
@@ -696,6 +866,9 @@ function SettingsPage() {
       />
 
       <div className="content-card">
+
+        {/* EDIT PROFILE */}
+
         {section === "profile" && (
           <>
             <h2>Edit Profile</h2>
@@ -724,22 +897,21 @@ function SettingsPage() {
                 onChange={(event) => setEmail(event.target.value)}
               />
 
-              <button className="primary-button" type="submit">
-                Save Profile Changes
-              </button>
               <button
-                className="secondary-button"
-                type="button"
-                onClick={() => {
-                  setName("Hourmaker User");
-                  setEmail("user@example.com");
-                }}
+                className="primary-button"
+                type="submit"
+                data-ai-action-id="save-profile-changes"
+                data-ai-description="Save the updated account profile name and email."
+                data-ai-category="account-settings"
+                data-ai-risk="confirm"
               >
-                Reset Form
+                Save Profile Changes
               </button>
             </form>
           </>
         )}
+
+        {/* EMAIL NOTIFICATIONS */}
 
         {section === "notifications" && (
           <>
@@ -764,6 +936,8 @@ function SettingsPage() {
           </>
         )}
 
+        {/* THEME SETTINGS */}
+
         {section === "theme" && (
           <>
             <h2>Theme Settings</h2>
@@ -782,6 +956,8 @@ function SettingsPage() {
           </>
         )}
 
+        {/* LOGOUT */}
+
         {section === "logout" && (
           <>
             <h2>Logout</h2>
@@ -791,7 +967,12 @@ function SettingsPage() {
             </p>
 
             <button
+              type="button"
               className="danger-button"
+              data-ai-action-id="logout-account"
+              data-ai-description="Log out of the current Hourmaker account."
+              data-ai-category="account-settings"
+              data-ai-risk="high"
               onClick={() => alert("Demo logout clicked.")}
             >
               Logout
@@ -799,11 +980,19 @@ function SettingsPage() {
           </>
         )}
 
+        {/* INVALID SETTINGS SECTION */}
+
         {!sections.some((item) => item.id === section) && (
           <div>
             <h2>Settings section not found</h2>
+
             <button
+              type="button"
               className="primary-button"
+              data-ai-action-id="settings-back-to-profile"
+              data-ai-description="Return to the account profile settings."
+              data-ai-category="navigation"
+              data-ai-risk="low"
               onClick={() => setParams({ section: "profile" })}
             >
               Back to Profile
@@ -815,7 +1004,10 @@ function SettingsPage() {
   );
 }
 
-// Billing page
+// --------------------------------------------------
+// BILLING PAGE
+// --------------------------------------------------
+
 function BillingPage() {
   return (
     <Layout>
@@ -826,11 +1018,17 @@ function BillingPage() {
 
       <div className="content-card">
         <h2>Current Plan</h2>
+
         <p>Free Demo Plan</p>
         <p>No real payment information is connected.</p>
 
         <button
+          type="button"
           className="primary-button"
+          data-ai-action-id="manage-billing-plan"
+          data-ai-description="Open the billing plan management action."
+          data-ai-category="billing"
+          data-ai-risk="confirm"
           onClick={() => alert("Billing demo action.")}
         >
           Manage Plan
@@ -840,19 +1038,27 @@ function BillingPage() {
   );
 }
 
-// Not found page
+// --------------------------------------------------
+// NOT FOUND PAGE
+// --------------------------------------------------
+
 function NotFound() {
   return (
     <Layout>
       <div className="content-card">
         <h2>Page not found</h2>
-        <Link to="/dashboard">Go to Dashboard</Link>
+
+        <Link to="/dashboard">
+          Go to Dashboard
+        </Link>
       </div>
     </Layout>
   );
 }
 
-// Main application
+// --------------------------------------------------
+// MAIN APPLICATION
+// --------------------------------------------------
 
 export default function App() {
   const [members, setMembers] = useState(initialMembers);
@@ -861,9 +1067,15 @@ export default function App() {
     <CapabilityProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route
+            path="/"
+            element={<Dashboard />}
+          />
 
-          <Route path="/dashboard" element={<Dashboard />} />
+          <Route
+            path="/dashboard"
+            element={<Dashboard />}
+          />
 
           <Route
             path="/team"
@@ -885,11 +1097,20 @@ export default function App() {
             }
           />
 
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route
+            path="/settings"
+            element={<SettingsPage />}
+          />
 
-          <Route path="/billing" element={<BillingPage />} />
+          <Route
+            path="/billing"
+            element={<BillingPage />}
+          />
 
-          <Route path="*" element={<NotFound />} />
+          <Route
+            path="*"
+            element={<NotFound />}
+          />
         </Routes>
       </BrowserRouter>
     </CapabilityProvider>

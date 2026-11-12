@@ -5,23 +5,24 @@ registerTool({
   name: "select_capability",
 
   description:
-    "Select one exact registered page or button capability. Also specify whether the user wants to navigate to a page or perform an action.",
+    "Select an available page or button capability using its exact ID.",
 
   parameters: {
     type: "object",
+
     properties: {
       capabilityId: {
         type: "string",
-        description:
-          "The exact ID of a capability supplied in the current catalogue."
+        description: "Exact ID of the selected capability."
       },
+
       intent: {
         type: "string",
         enum: ["navigate", "action"],
-        description:
-          "Use navigate when the user only wants to open a page. Use action when the user wants to perform or click an operation."
+        description: "Requested operation intent."
       }
     },
+
     required: ["capabilityId", "intent"],
     additionalProperties: false
   },
@@ -29,24 +30,18 @@ registerTool({
   execute: async ({ capabilityId, intent }) => {
     if (
       typeof capabilityId !== "string" ||
-      !capabilityId.trim()
+      !capabilityId.trim() ||
+      !["navigate", "action"].includes(intent)
     ) {
       return {
         success: false,
-        message: "A valid capability ID is required."
-      };
-    }
-
-    if (!["navigate", "action"].includes(intent)) {
-      return {
-        success: false,
-        message: "A valid action intent is required."
+        message: "Invalid capability selection."
       };
     }
 
     return {
       success: true,
-      capabilityId: capabilityId.trim(),
+      capabilityId,
       intent
     };
   }

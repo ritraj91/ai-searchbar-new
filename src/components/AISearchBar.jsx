@@ -1,446 +1,828 @@
+import React, { useEffect, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 
-import { useEffect, useState } from "react";
-import {
-  useNavigate,
-  useLocation
-} from "react-router-dom";
 
 import searchData from "../searchData";
 
 import {
   discoverCurrentPage,
   findDiscoveredButton,
-  isSensitiveButton
+  isSensitiveButton,
+  observePageButtons
 } from "./autoDiscovery";
 
 import "./AISearchBar.css";
 
+// ==================================================
+// CONFIGURATION
+// ==================================================
+
 const PENDING_KEY = "hourmaker_pending_ai_action";
 
-const stopWords = new Set([
-  "i", "me", "my", "the", "a", "an", "to", "please",
-  "can", "could", "would", "want", "like", "need",
-  "show", "open", "go", "take", "bring", "navigate",
-  "get", "see", "view", "let", "us"
-]);
+const API_BASE_URL = (
+import.meta.env.VITE_API_BASE_URL || "http://localhost:5000"
+).replace(/\/+$/, "");
 
-const pageAliases = {
-  Dashboard: ["home", "home page", "overview", "main page"],
-  "Dashboard Statistics": ["statistics", "dashboard stats", "stats"],
-  "Recent Team Activity": ["team activity", "recent activity"],
-  "Team Management": ["team", "employees", "staff", "people"],
-  "Team Members List": ["employee list", "team list", "all employees"],
-  "Search Team Members": ["find employee", "search employee"],
-  "Invite a Team Member": ["invite", "add employee", "new employee"],
-  "Account Settings": ["settings", "account", "profile settings"],
-  "Edit Profile": ["edit my profile", "change profile"],
-  "Email Notifications": ["notifications", "email settings"],
-  "Theme Settings": ["theme", "dark mode", "light mode"],
-  "Billing and Payments": ["billing", "payments", "subscription"]
+const API_URL = API_BASE_URL + "/api/assistant/chat";
+
+// ==================================================
+// SEARCH CONFIGURATION
+// ==================================================
+
+const STOP_WORDS = [
+"i", "me", "my", "the", "a", "an", "to",
+"please", "can", "could", "would", "want",
+"like", "need", "show", "open", "go",
+"take", "bring", "navigate", "get", "see",
+"view", "let", "us"
+];
+
+const PAGE_ALIASES = {
+Dashboard: ["home", "home page", "overview", "main page"],
+
+"Dashboard Statistics": [
+"statistics",
+"dashboard stats",
+"stats"
+],
+
+"Recent Team Activity": [
+"team activity",
+"recent activity"
+],
+
+"Dashboard Quick Actions": [
+"quick actions",
+"quick action",
+"actions"
+],
+
+"Team Management": [
+"team",
+"employees",
+"staff",
+"people"
+],
+
+"Team Members List": [
+"employee list",
+"team list",
+"all employees",
+"members list"
+],
+
+"Search Team Members": [
+"find employee",
+"search employee",
+"find member",
+"search members"
+],
+
+"Edit Team Member": [
+"edit employee",
+"update employee",
+"change employee details"
+],
+
+"Remove Team Member": [
+"remove employee",
+"delete employee",
+"remove member"
+],
+
+"Manage Member Status": [
+"member status",
+"employee status",
+"active inactive"
+],
+
+"Invite a Team Member": [
+"invite",
+"add employee",
+"new employee"
+],
+
+"Account Settings": [
+"settings",
+"account",
+"profile settings"
+],
+
+"Edit Profile": [
+"edit my profile",
+"change profile"
+],
+
+"Email Notifications": [
+"notifications",
+"email settings"
+],
+
+"Theme Settings": [
+"theme",
+"dark mode",
+"light mode"
+],
+
+"Billing and Payments": [
+"billing",
+"payments",
+"subscription"
+]
 };
 
-const normalize = (value = "") =>
-  value.toLowerCase().replace(/[^\w\s]/g, " ").trim();
+// ==================================================
+// HELPER FUNCTIONS
+// ==================================================
 
-async function askAssistant(query, capabilities, mode) {
-  const response = await fetch(
-    "http://127.0.0.1:5000/api/assistant/chat",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        query,
-        mode,
-        capabilities
-      })
-    }
-  );
-
-  const data = await response.json();
-
-  if (!response.ok || !data.success) {
-    throw new Error(
-      data.message || "AI assistant request failed."
-    );
-  }
-
-  return data;
+function normalize(value) {
+return String(value || "")
+.toLowerCase()
+.replace(/[^\w\s]/g, " ")
+.replace(/\s+/g, " ")
+.trim();
 }
 
+function getSelectedCapability(result, capabilities) {
+if (
+!result ||
+result.type !== "tool_result" ||
+result.tool !== "select_capability" ||
+!result.result ||
+result.result.success !== true
+) {
+return null;
+}
+
+const capabilityId = result.result.capabilityId;
+
+if (!capabilityId) {
+return null;
+}
+
+return capabilities.find(function (item) {
+return item.id === capabilityId;
+}) || null;
+}
+
+// ==================================================
+// BACKEND API REQUEST
+// ==================================================
+
+async function askAssistant(query, capabilities, mode) {
+let response;
+
+try {
+response = await fetch(API_URL, {
+method: "POST",
+
+headers: {
+"Content-Type": "application/json"
+},
+
+body: JSON.stringify({
+query: query,
+capabilities: capabilities,
+mode: mode
+})
+});
+} catch (error) {
+console.error("Backend connection error:", error);
+
+throw new Error(
+"Cannot connect to backend. Check whether your backend is running at " +
+API_BASE_URL
+);
+}
+
+let data;
+
+try {
+data = await response.json();
+} catch (error) {
+throw new Error(
+"Backend returned an invalid response. HTTP status: " +
+response.status
+);
+}
+
+if (!response.ok || data.success === false) {
+throw new Error(
+data.message ||
+data.answer ||
+"Backend request failed. HTTP status: " + response.status
+);
+}
+
+return data;
+}
+
+// ==================================================
+// WAIT FOR BUTTON DISCOVERY
+// ==================================================
+
+async function waitForDiscoveredButtons() {
+const maxAttempts = 15;
+const delay = 200;
+
+for (let attempt = 0; attempt < maxAttempts; attempt++) {
+const buttons = discoverCurrentPage();
+
+if (buttons && buttons.length > 0) {
+return buttons;
+}
+
+await new Promise(function (resolve) {
+setTimeout(resolve, delay);
+});
+}
+
+return [];
+}
+
+// ==================================================
+// MAIN COMPONENT
+// ==================================================
+
 export default function AISearchBar({ role }) {
-  const navigate = useNavigate();
-  const location = useLocation();
+const navigate = useNavigate();
+const location = useLocation();
 
-  const currentRole = (role || "employee").toLowerCase();
+const currentRole = String(role || "employee").toLowerCase();
 
-  const [query, setQuery] = useState("");
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [aiResponse, setAiResponse] = useState("");
-  const [error, setError] = useState("");
+const [query, setQuery] = useState("");
+const [showSuggestions, setShowSuggestions] = useState(false);
+const [loading, setLoading] = useState(false);
+const [aiResponse, setAiResponse] = useState("");
+const [error, setError] = useState("");
+const [discoveredCapabilities, setDiscoveredCapabilities] = useState([]);
+  
 
-  const meaningfulWords = normalize(query)
-    .split(/\s+/)
-    .filter((word) => word && !stopWords.has(word));
 
-  // Existing suggestions are preserved.
-  const suggestions = searchData.filter((item) => {
-    const allowedRoles = (item.roles || []).map((r) =>
-      r.toLowerCase()
-    );
-
-    if (!allowedRoles.includes(currentRole)) return false;
-    if (!meaningfulWords.length) return false;
-
-    const searchableText = [
-      item.title,
-      item.description,
-      ...(pageAliases[item.title] || [])
-    ].join(" ");
-
-    const searchableWords = normalize(searchableText).split(/\s+/);
-
-    return meaningfulWords.every((queryWord) =>
-      searchableWords.some((word) => word.startsWith(queryWord))
-    );
-  }).slice(0, 5);
-
-  function clearSearch() {
-    setQuery("");
-    setShowSuggestions(false);
-    setAiResponse("");
-    setError("");
-  }
-
-  function openPage(path) {
-    navigate(path);
-    clearSearch();
-  }
-
-  // Stage 2: after navigation, discover the rendered page's buttons.
+  // AUTOMATIC UI DISCOVERY
   useEffect(() => {
-    let cancelled = false;
+    let stopObserving = () => {};
 
-    async function continuePendingAction() {
-      const raw = sessionStorage.getItem(PENDING_KEY);
+    const startDiscovery = () => {
+      const initialButtons = discoverCurrentPage();
 
-      if (!raw) return;
+      setDiscoveredCapabilities(initialButtons);
 
-      let pending;
+      stopObserving = observePageButtons((updatedButtons) => {
+        setDiscoveredCapabilities(updatedButtons);
 
-      try {
-        pending = JSON.parse(raw);
-      } catch {
-        sessionStorage.removeItem(PENDING_KEY);
-        return;
-      }
+        console.log("Hourmaker AI: UI updated", updatedButtons);
+      });
+    };
 
-      const currentPath =
-        location.pathname + location.search;
-
-      if (currentPath !== pending.path) return;
-
-      // Remove immediately so it cannot execute twice.
-      sessionStorage.removeItem(PENDING_KEY);
-
-      setLoading(true);
-      setAiResponse("");
-      setError("");
-
-      try {
-        // Wait briefly for the page content to render.
-        await new Promise((resolve) => setTimeout(resolve, 150));
-
-        if (cancelled) return;
-
-        const discoveredButtons = discoverCurrentPage();
-
-        if (!discoveredButtons.length) {
-          setAiResponse(
-            "I opened the requested page, but no available buttons were found there."
-          );
-          return;
-        }
-
-        const result = await askAssistant(
-          pending.query,
-          discoveredButtons.map(({ id, name, description, type }) => ({
-            id,
-            name,
-            description,
-            type
-          })),
-          "action"
-        );
-
-        if (cancelled) return;
-
-        if (
-          result.type !== "tool_result" ||
-          result.tool !== "select_capability" ||
-          !result.result?.success
-        ) {
-          setAiResponse(
-            result.answer ||
-            result.result?.message ||
-            "I could not identify the requested button."
-          );
-          return;
-        }
-
-        const selected = discoveredButtons.find(
-          (item) => item.id === result.result.capabilityId
-        );
-
-        if (!selected) {
-          throw new Error(
-            "AI selected a button that is not available on this page."
-          );
-        }
-
-        const button = findDiscoveredButton(selected);
-
-        if (!button) {
-          throw new Error(
-            "The selected button is no longer available. Please try again."
-          );
-        }
-
-        // Sensitive actions must always be completed manually.
-        if (isSensitiveButton(button)) {
-          setAiResponse(
-            `I found "${selected.name}". For safety, please click it yourself to complete this action.`
-          );
-          return;
-        }
-
-        const confirmed = window.confirm(
-          `Hourmaker AI found "${selected.name}". Do you want to click this button?`
-        );
-
-        if (!confirmed) {
-          setAiResponse("Action cancelled.");
-          return;
-        }
-
-        button.click();
-
-        setAiResponse(
-          `"${selected.name}" was clicked. Check the page for the result.`
-        );
-
-      } catch (err) {
-        console.error("Pending AI action error:", err);
-        setError(err.message || "Unable to complete the action.");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    continuePendingAction();
+    const timer = setTimeout(startDiscovery, 200);
 
     return () => {
-      cancelled = true;
+      clearTimeout(timer);
+      stopObserving();
     };
   }, [location.pathname, location.search, location.key]);
 
-  // Stage 1: ask AI to navigate or identify the destination page.
-  async function handleSearch(event) {
-    event.preventDefault();
+// ==================================================
+// SEARCH SUGGESTIONS
+// ==================================================
 
-    const searchTerm = query.trim();
+const meaningfulWords = normalize(query)
+.split(/\s+/)
+.filter(function (word) {
+return word && !STOP_WORDS.includes(word);
+});
 
-    if (!searchTerm || loading) return;
+const suggestions = (Array.isArray(searchData) ? searchData : [])
+.filter(function (item) {
+const allowedRoles = (item.roles || []).map(function (itemRole) {
+return String(itemRole).toLowerCase();
+});
 
-    setShowSuggestions(false);
-    setAiResponse("");
-    setError("");
-    setLoading(true);
+if (!allowedRoles.includes(currentRole)) {
+return false;
+}
 
-    try {
-      const pageCapabilities = searchData
-        .filter((item) =>
-          (item.roles || []).some(
-            (itemRole) => itemRole.toLowerCase() === currentRole
-          )
-        )
-        .map((item) => ({
-          id: `page:${item.id}`,
-          name: item.title,
-          description: item.description,
-          type: "page",
-          path: item.path,
-          roles: item.roles
-        }));
+if (meaningfulWords.length === 0) {
+return false;
+}
 
-      const result = await askAssistant(
-        searchTerm,
-        pageCapabilities,
-        "route"
-      );
+const searchableText = [
+item.title,
+item.description,
+...(PAGE_ALIASES[item.title] || [])
+].join(" ");
 
-      if (result.type !== "tool_result") {
-        setAiResponse(
-          result.answer || "I could not understand your request."
-        );
-        return;
-      }
+const searchableWords = normalize(searchableText).split(/\s+/);
 
-      if (
-        result.tool !== "select_capability" ||
-        !result.result?.success
-      ) {
-        setAiResponse(
-          result.result?.message || "No matching feature was found."
-        );
-        return;
-      }
+return meaningfulWords.every(function (queryWord) {
+return searchableWords.some(function (word) {
+return word.startsWith(queryWord);
+});
+});
+})
+.slice(0, 5);
 
-      const selected = pageCapabilities.find(
-        (item) => item.id === result.result.capabilityId
-      );
+// ==================================================
+// CLEAR SEARCH
+// ==================================================
 
-      if (!selected) {
-        throw new Error(
-          "AI selected a page that is not registered for your role."
-        );
-      }
+function clearSearch() {
+setQuery("");
+setShowSuggestions(false);
+setAiResponse("");
+setError("");
+}
 
-      if (!selected.path) {
-        throw new Error("The selected page has no route.");
-      }
+// ==================================================
+// OPEN PAGE FROM SUGGESTION
+// ==================================================
 
-      const intent = result.result.intent || "navigate";
+function openPage(path) {
+sessionStorage.removeItem(PENDING_KEY);
 
-      if (intent === "navigate") {
-        clearSearch();
+clearSearch();
 
-        navigate(selected.path, {
-          state: { aiNavigation: Date.now() }
-        });
+navigate(path);
+}
 
-        return;
-      }
+// ==================================================
+// STAGE 2: DISCOVER AND SELECT BUTTON
+// ==================================================
 
-      if (intent === "action") {
-        const pending = {
-          query: searchTerm,
-          path: selected.path,
-          role: currentRole
-        };
+useEffect(function () {
+let cancelled = false;
 
-        sessionStorage.setItem(
-          PENDING_KEY,
-          JSON.stringify(pending)
-        );
+async function continuePendingAction() {
+const raw = sessionStorage.getItem(PENDING_KEY);
 
-        setQuery("");
-        setShowSuggestions(false);
-        setAiResponse(`Opening ${selected.name} to find the requested action...`);
+if (!raw) {
+return;
+}
 
-        navigate(selected.path, {
-          state: { aiActionDiscovery: Date.now() }
-        });
+let pending;
 
-        return;
-      }
+try {
+pending = JSON.parse(raw);
+} catch (error) {
+sessionStorage.removeItem(PENDING_KEY);
+return;
+}
 
-      throw new Error("Unsupported AI intent.");
+if (
+!pending ||
+typeof pending.query !== "string" ||
+typeof pending.path !== "string"
+) {
+sessionStorage.removeItem(PENDING_KEY);
+return;
+}
 
-    } catch (err) {
-      console.error("AI Assistant error:", err);
-      setError(err.message || "Unable to connect to Hourmaker AI.");
-    } finally {
-      setLoading(false);
-    }
-  }
+if (
+pending.role &&
+String(pending.role).toLowerCase() !== currentRole
+) {
+sessionStorage.removeItem(PENDING_KEY);
+setAiResponse("No result found.");
+return;
+}
 
-  function handleChange(event) {
-    setQuery(event.target.value);
-    setAiResponse("");
-    setError("");
-    setShowSuggestions(true);
-  }
+const expectedPath = pending.path.split("?")[0];
 
-  return (
-    <div className="ai-search-container">
-      <form className="ai-search-form" onSubmit={handleSearch}>
-        <span className="search-icon">✧</span>
+if (location.pathname !== expectedPath) {
+return;
+}
 
-        <input
-          type="text"
-          placeholder="Ask Hourmaker AI or search your workspace..."
-          value={query}
-          onChange={handleChange}
-          onFocus={() => {
-            if (query.trim()) setShowSuggestions(true);
-          }}
-        />
+sessionStorage.removeItem(PENDING_KEY);
 
-        {query && (
-          <button
+setLoading(true);
+setAiResponse("");
+setError("");
+
+try {
+// Discover buttons on current page
+const discoveredButtons = await waitForDiscoveredButtons();
+
+if (cancelled) {
+return;
+}
+
+if (!discoveredButtons || discoveredButtons.length === 0) {
+setAiResponse("No result found.");
+return;
+}
+
+// Prepare button catalogue
+const buttonCapabilities = discoveredButtons.map(function (item) {
+return {
+id: item.id,
+name: item.name,
+label: item.label,
+description: item.description,
+type: item.type,
+category: item.category,
+page: item.page,
+pageTitle: item.pageTitle,
+risk: item.risk,
+sensitive: item.sensitive,
+enabled: item.enabled,
+visible: item.visible
+};
+});
+
+// Ask AI to select action
+const result = await askAssistant(
+pending.query,
+buttonCapabilities,
+"action"
+);
+
+if (cancelled) {
+return;
+}
+
+if (!result || result.type === "message") {
+setAiResponse("No result found.");
+return;
+}
+
+// Validate selected capability
+const selected = getSelectedCapability(
+result,
+buttonCapabilities
+);
+
+if (!selected) {
+console.warn("Invalid AI selection:", result);
+setAiResponse("No result found.");
+return;
+}
+
+if (result.result.intent !== "action") {
+setAiResponse("No result found.");
+return;
+}
+
+// Find actual button
+const button = findDiscoveredButton(selected);
+
+if (!button) {
+setAiResponse("No result found.");
+return;
+}
+
+// Validate button
+if (
+cancelled ||
+!button.isConnected ||
+button.disabled ||
+button.getAttribute("aria-disabled") === "true"
+) {
+setAiResponse("No result found.");
+return;
+}
+
+// Block sensitive operations
+if (
+selected.sensitive === true ||
+selected.risk === "manual" ||
+isSensitiveButton(button)
+) {
+setAiResponse(
+"This operation requires manual action."
+);
+return;
+}
+
+// Final validation
+if (
+cancelled ||
+!button.isConnected ||
+button.disabled ||
+button.getAttribute("aria-disabled") === "true"
+) {
+setAiResponse("No result found.");
+return;
+}
+
+// Execute action
+button.click();
+
+setAiResponse("");
+
+} catch (err) {
+console.error("Button discovery error:", err);
+
+if (!cancelled) {
+setError(
+err.message || "Unable to complete the action."
+);
+}
+
+} finally {
+if (!cancelled) {
+setLoading(false);
+}
+}
+}
+
+const timer = setTimeout(function () {
+continuePendingAction();
+}, 200);
+
+return function () {
+cancelled = true;
+clearTimeout(timer);
+};
+
+}, [
+location.pathname,
+location.search,
+location.key,
+currentRole
+]);
+
+// ==================================================
+// STAGE 1: PAGE SEARCH AND NAVIGATION
+// ==================================================
+
+async function handleSearch(event) {
+event.preventDefault();
+
+const searchTerm = query.trim();
+
+if (!searchTerm || loading) {
+return;
+}
+
+setShowSuggestions(false);
+setAiResponse("");
+setError("");
+setLoading(true);
+
+sessionStorage.removeItem(PENDING_KEY);
+
+try {
+// Prepare role-based page catalogue
+const pageCapabilities = (Array.isArray(searchData) ? searchData : [])
+.filter(function (item) {
+return (item.roles || []).some(function (itemRole) {
+return String(itemRole).toLowerCase() === currentRole;
+});
+})
+.map(function (item) {
+return {
+id: "page:" + item.id,
+name: item.title,
+description: item.description || "",
+type: "page",
+category: "navigation",
+page: item.path,
+pageTitle: item.title,
+path: item.path
+};
+});
+
+if (pageCapabilities.length === 0) {
+setAiResponse("No result found.");
+return;
+}
+
+// Ask AI to select page
+const result = await askAssistant(
+searchTerm,
+pageCapabilities,
+"route"
+);
+
+if (!result || result.type === "message") {
+setAiResponse("No result found.");
+return;
+}
+
+// Validate selection
+const selected = getSelectedCapability(
+result,
+pageCapabilities
+);
+
+if (!selected || !selected.path) {
+console.warn("Invalid AI page selection:", result);
+setAiResponse("No result found.");
+return;
+}
+
+const intent = result.result.intent;
+
+// Normal navigation
+if (intent === "navigate") {
+clearSearch();
+
+navigate(selected.path, {
+state: {
+aiNavigation: Date.now()
+}
+});
+
+return;
+}
+
+// User wants an action on the selected page
+if (intent === "action") {
+const pending = {
+query: searchTerm,
+path: selected.path,
+role: currentRole,
+createdAt: Date.now()
+};
+
+sessionStorage.setItem(
+PENDING_KEY,
+JSON.stringify(pending)
+);
+
+setQuery("");
+
+setShowSuggestions(false);
+
+setAiResponse(
+"Opening " + selected.name +
+" to find the requested action..."
+);
+
+navigate(selected.path, {
+state: {
+aiActionDiscovery: Date.now()
+}
+});
+
+return;
+}
+
+setAiResponse("No result found.");
+
+} catch (err) {
+console.error("Hourmaker AI search error:", err);
+
+setError(
+err.message || "Unable to connect to Hourmaker AI."
+);
+
+} finally {
+setLoading(false);
+}
+}
+
+// ==================================================
+// INPUT CHANGE
+// ==================================================
+
+function handleChange(event) {
+setQuery(event.target.value);
+
+setAiResponse("");
+setError("");
+
+setShowSuggestions(true);
+}
+
+// ==================================================
+// UI
+// ==================================================
+
+return (
+<div className="ai-search-container">
+
+<form
+        className="ai-search-form"
+        onSubmit={handleSearch}
+      >
+
+<span className="search-icon">
+✧
+</span>
+
+<input
+type="text"
+placeholder="Ask Hourmaker AI or search your workspace..."
+value={query}
+onChange={handleChange}
+onFocus={function () {
+if (query.trim()) {
+setShowSuggestions(true);
+}
+}}
+disabled={loading}
+/>
+
+{query && (
+<button
             type="button"
             className="search-clear-button"
             onClick={clearSearch}
             aria-label="Clear search"
           >
-            ✕
-          </button>
-        )}
+✕
+</button>
+)}
 
-        <button
-          type="submit"
-          className="unified-search-button"
-          disabled={loading || !query.trim()}
-        >
-          {loading ? "Searching..." : "Search"}
-        </button>
-      </form>
+<button
+type="submit"
+className="unified-search-button"
+disabled={loading || !query.trim()}
+>
+{loading ? "Searching..." : "Search"}
+</button>
 
-      {showSuggestions && query.trim() && !loading && (
-        <div className="search-suggestions">
-          {suggestions.length > 0 ? (
-            suggestions.map((item) => (
-              <button
-                type="button"
-                className="suggestion-item"
-                key={item.id}
-                onClick={() => openPage(item.path)}
-              >
-                <span className="suggestion-icon">⌕</span>
-                <span>
-                  <strong>{item.title}</strong>
-                  <small>{item.description}</small>
-                </span>
-              </button>
-            ))
-          ) : (
-            <div className="no-suggestions">
-              No direct suggestions. Press Search to ask Hourmaker AI.
-            </div>
-          )}
-        </div>
-      )}
+</form>
 
-      {(aiResponse || error) && (
-        <div className="ai-answer ai-response">
-          <h3>✧ Hourmaker AI</h3>
-          {aiResponse && <p>{aiResponse}</p>}
-          {error && <p className="search-error">{error}</p>}
-        </div>
-      )}
+{/* SEARCH SUGGESTIONS */}
 
-      {loading && (
-        <div className="ai-loading-overlay">
-          <div className="ai-loading-card">
-            <div className="ai-loading-spinner"></div>
-            <h3>Hourmaker AI is thinking...</h3>
-            <p>Understanding your request and discovering available actions</p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+{showSuggestions && query.trim() && !loading && (
+<div className="search-suggestions">
+
+{suggestions.length > 0 ? (
+
+suggestions.map(function (item) {
+return (
+<button
+type="button"
+className="suggestion-item"
+key={item.id}
+onClick={function () {
+openPage(item.path);
+}}
+>
+
+<span className="suggestion-icon">
+⌕
+</span>
+
+<span>
+<strong>{item.title}</strong>
+
+<small>{item.description}</small>
+</span>
+
+</button>
+);
+})
+
+) : (
+
+<div className="no-suggestions">
+No direct suggestions. Press Search to ask Hourmaker AI.
+</div>
+
+)}
+
+</div>
+)}
+
+{/* AI RESPONSE */}
+
+{(aiResponse || error) && (
+<div className="ai-answer ai-response">
+
+<h3>
+✧ Hourmaker AI
+</h3>
+
+{aiResponse && (
+<p>{aiResponse}</p>
+)}
+
+{error && (
+<p className="search-error">
+{error}
+</p>
+)}
+
+</div>
+)}
+
+{/* LOADING */}
+
+{loading && (
+<div className="ai-loading-overlay">
+
+<div className="ai-loading-card">
+
+<div className="ai-loading-spinner" />
+
+<h3>
+Hourmaker AI is thinking...
+</h3>
+
+<p>
+Understanding your request and discovering available actions.
+</p>
+
+</div>
+
+</div>
+)}
+
+</div>
+);
 }
